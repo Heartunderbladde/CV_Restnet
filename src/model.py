@@ -31,12 +31,8 @@ def build_model():
         nn.Linear(in_features, NUM_CLASSES),
     )
 
-    # 冻结浅层（layer1, layer2），只训练 layer3, layer4 和 fc
-    # 这样既能利用预训练的底层特征，又能让高层适应 K 线图
-    freeze_layers = ["conv1", "bn1", "layer1", "layer2"]
-    for name, param in model.named_parameters():
-        if any(fl in name for fl in freeze_layers):
-            param.requires_grad = False
+    # 全部参数可训练 — K线图与ImageNet差异大，需要全面finetune
+    # 不再冻结任何层
 
     # 统计可训练参数
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)

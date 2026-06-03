@@ -11,10 +11,9 @@ from config import *
 
 
 # 训练集的数据增强
+# K线图特殊性：不翻转(时间不可逆)、不旋转(破坏形态)、只做轻度颜色抖动
 train_transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=5),
-    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ColorJitter(brightness=0.05, contrast=0.05),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225]),

@@ -123,7 +123,11 @@ def main():
     print("-" * 60)
 
     best_val_f1 = 0.0
+    best_val_loss = float("inf")
     best_model_path = os.path.join(OUTPUT_DIR, "best_model.pth")
+    patience_counter = 0
+    PATIENCE = 5  # 连续5轮 val_loss 不降则早停
+
     history = {"train_loss": [], "train_acc": [], "train_f1": [],
                "val_loss": [], "val_acc": [], "val_f1": [], "val_auc": []}
 
@@ -150,7 +154,7 @@ def main():
         print(f"  Val   Loss: {val_loss:.4f}, Acc: {val_acc:.4f}, F1: {val_f1:.4f}, AUC: {val_auc:.4f}")
         print(f"  Val   CM: TN={val_cm[0][0]}, FP={val_cm[0][1]}, FN={val_cm[1][0]}, TP={val_cm[1][1]}")
 
-        # 保存最佳模型
+        # 保存最佳模型（按 F1）
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             torch.save({
@@ -162,6 +166,17 @@ def main():
                 "val_auc": val_auc,
             }, best_model_path)
             print(f"  *** 最佳模型已保存 (F1={best_val_f1:.4f}) ***")
+
+        # 早停：val_loss 连续 PATIENCE 轮不降
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= PATIENCE:
+                print(f"\n  !!! 早停: val_loss 连续 {PATIENCE} 轮未改善，停止训练")
+                break
+
         print()
 
     # 保存训练历史

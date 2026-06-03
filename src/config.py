@@ -42,11 +42,11 @@ CHART_COLOR_UP = "red"     # 红涨
 CHART_COLOR_DOWN = "green"  # 绿跌
 
 # ============ 训练参数 (GPU 24GB) ============
-BATCH_SIZE = 128            # 24GB 显存可以跑更大 batch
-NUM_EPOCHS = 25             # GPU 训练快，多跑几轮
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-4
-NUM_WORKERS = 4             # Linux 下多进程数据加载
+BATCH_SIZE = 128
+NUM_EPOCHS = 20             # 配合早停，不需要太多轮
+LEARNING_RATE = 5e-5        # 全量 finetune 用更低学习率
+WEIGHT_DECAY = 1e-3         # 增强正则化防止过拟合
+NUM_WORKERS = 4
 
 # ============ 模型参数 ============
 MODEL_NAME = "resnet18"
