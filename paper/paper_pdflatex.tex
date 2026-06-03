@@ -218,14 +218,15 @@ F1 Score  & 0.4590 \\
 \centering
 \caption{消融实验：四轮策略调整与测试集结果}
 \label{tab:ablation}
-\begin{tabular}{cclp{4.5cm}cc}
+\small
+\begin{tabular}{clp{2.8cm}p{2.8cm}cc}
 \toprule
-\textbf{实验} & \textbf{策略} & \textbf{相对上一轮改动} & \textbf{动机} & \textbf{AUC} & \textbf{F1} \\
+\textbf{实验} & \textbf{策略} & \textbf{关键改动} & \textbf{动机} & \textbf{AUC} & \textbf{F1} \\
 \midrule
-A1 & 冻结迁移 & 冻结 conv1--layer2; stride=15; 含翻转/旋转增强 & 基线：验证迁移学习可行性 & 0.5277 & 0.6067\textsuperscript{*} \\
-A2 & 全量微调 & 解冻所有层; 删除翻转/旋转; LR=5e-5 & 测试全量微调是否优于冻结 & 0.5261 & 0.5501 \\
-A3 & 稀疏采样 & stride=45; label smoothing=0.1 & 降低数据冗余，缓解过拟合 & 0.5261 & 0.5501 \\
-A4 & 极端标签 & 标签改为 $\ge \pm 3\%$; LR=1e-5 & 聚焦强趋势样本，增强信号 & 0.5105 & 0.4590 \\
+A1 & 冻结迁移 & 冻结conv1--layer2; stride=15 & 基线：验证迁移学习可行性 & 0.5277 & 0.6067\textsuperscript{*} \\
+A2 & 全量微调 & 解冻所有层; LR=5e-5 & 全量微调 vs.\ 冻结 & 0.5261 & 0.5501 \\
+A3 & 稀疏采样 & stride=45; 标签平滑0.1 & 降低冗余，缓解过拟合 & 0.5261 & 0.5501 \\
+A4 & 极端标签 & $\ge\pm3\%$过滤; LR=1e-5 & 聚焦强趋势，增强信号 & 0.5105 & 0.4590 \\
 \bottomrule
 \multicolumn{6}{l}{\footnotesize \textsuperscript{*}A1 的 F1 虚高系模型偏向预测``涨''类所致，不代表真正预测能力。} \\
 \end{tabular}
