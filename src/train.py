@@ -107,7 +107,7 @@ def main():
     else:
         class_weights = None
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=LABEL_SMOOTHING)
 
     # 优化器和调度器
     optimizer = AdamW(

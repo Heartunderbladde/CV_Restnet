@@ -44,8 +44,9 @@ CHART_COLOR_DOWN = "green"  # 绿跌
 # ============ 训练参数 (GPU 24GB) ============
 BATCH_SIZE = 128
 NUM_EPOCHS = 20             # 配合早停，不需要太多轮
-LEARNING_RATE = 5e-5        # 全量 finetune 用更低学习率
-WEIGHT_DECAY = 1e-3         # 增强正则化防止过拟合
+LEARNING_RATE = 1e-5        # 全量 finetune + 标签平滑，用极低 LR
+WEIGHT_DECAY = 5e-4         # 适度正则化
+LABEL_SMOOTHING = 0.1       # 标签平滑防止过拟合
 NUM_WORKERS = 4
 
 # ============ 模型参数 ============

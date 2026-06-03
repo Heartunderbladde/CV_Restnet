@@ -19,7 +19,7 @@ from functools import partial
 from config import *
 
 # 滑动步长：每隔 STRIDE 天取一个窗口
-STRIDE = 15  # GPU 训练，数据量可放开（~26k 张图）
+STRIDE = 45  # 降低窗口重叠(25%)，避免数据冗余导致过拟合
 
 plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
