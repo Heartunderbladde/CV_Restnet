@@ -26,7 +26,8 @@ START_DATE = "2020-01-01"
 END_DATE = "2025-12-31"
 CANDLE_COUNT = 60          # 每张图 60 根日K线
 FORECAST_DAYS = 10         # 预测未来10日涨跌
-THRESHOLD = 0.0            # >0 涨, <=0 跌
+UP_THRESHOLD = 0.03        # 涨≥3% 才标"涨"，过滤震荡
+DOWN_THRESHOLD = -0.03     # 跌≤-3% 才标"跌"，过滤震荡
 
 # ============ 数据集划分（按年份） ============
 TRAIN_START = "2020-01-01"

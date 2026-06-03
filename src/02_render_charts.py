@@ -104,11 +104,20 @@ def prepare_render_tasks(all_data):
                 break
 
             row = df.iloc[label_date_idx]
-            label = row.get("label")
-            if pd.isna(label):
+            label_val = row.get("label")
+            if pd.isna(label_val):
                 continue
 
-            label = int(label)
+            # 用 return 列重新计算标签（基于涨跌阈值）
+            ret = row.get("return", 0)
+            if pd.isna(ret):
+                continue
+            if ret >= UP_THRESHOLD:
+                label = 1
+            elif ret <= DOWN_THRESHOLD:
+                label = 0
+            else:
+                continue  # 震荡区间，丢弃
             label_date = df.iloc[window_end - 1]["trade_date"]
 
             # 时间划分
