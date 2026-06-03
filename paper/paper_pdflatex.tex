@@ -1,0 +1,343 @@
+% !TEX program = pdflatex
+\documentclass[12pt,a4paper]{article}
+
+% ============ 中英文支持 (PdfLaTeX 兼容) ============
+\usepackage{CJKutf8}
+
+% ============ 页面设置 ============
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{url}
+
+\begin{document}
+\begin{CJK}{UTF8}{gbsn}
+
+% ==================== 封面 ====================
+\title{\textbf{\large 基于 ResNet 的 K 线图涨跌趋势分类研究}}
+\author{XXX\footnote{作者贡献说明：XXX 负责数据获取、图表渲染与实验执行；XXX 负责模型选型、训练调优与结果分析；XXX 负责论文撰写与文献调研。}}
+\date{}
+\maketitle
+
+% ==================== 摘要 ====================
+\begin{abstract}
+\noindent 本文研究将计算机视觉中的 ResNet 卷积神经网络应用于金融 K 线图的涨跌趋势分类任务。我们以沪深 300 成分股 2020 至 2025 年的日线交易数据为基础，使用 AKShare 获取前复权 OHLC 数据，通过 mplfinance 将每 60 个交易日的 K 线图及成交量渲染为 $224 \times 224$ 像素的 RGB 图像，并以未来 10 个交易日的累计收益率是否超过 $\pm 3\%$ 作为涨跌标签。模型采用在 ImageNet 上预训练的 ResNet-18，通过全量微调进行迁移学习。经过四轮系统的训练策略调优（包括层冻结对比、数据增强调整、窗口稀疏采样、极端趋势标签过滤等），模型在测试集上的 AUC-ROC 约为 \textbf{0.51}，F1 分数约为 \textbf{0.46}，表现接近随机猜测水平。本文对这一负面实验结果进行了深入分析，讨论了卷积神经网络在金融时序预测任务中面临的本质挑战，包括有效市场假说、数据非平稳性以及视觉特征的局限性，并提出了未来改进方向。本文的代码与实验数据已开源，可供后续研究复现与参考。
+
+\vspace{1em}
+\noindent \textbf{关键词}：ResNet，K 线图，趋势分类，迁移学习，金融预测，有效市场假说
+
+\vspace{1em}
+\noindent \textbf{中图分类号}：TP391.4 \hspace{2em} \textbf{文献标识码}：A
+\end{abstract}
+
+% ==================== 1. 引言 ====================
+\section{引言}
+
+金融市场的价格预测一直是学术界和工业界共同关注的核心问题。从经典的 Fama-French 三因子模型到近年兴起的深度学习预测方法，研究者们不断尝试用更强大的模型去捕捉市场中的可预测模式\cite{fama1970}。在众多研究路径中，将金融数据可视化为图表并利用计算机视觉技术进行分析，是一种新颖但尚未充分探索的思路。
+
+K 线图（Candlestick Chart）是金融市场中最经典的可视化形式之一，它起源于 18 世纪日本的米市交易，以图形化方式同时展示开盘价、收盘价、最高价、最低价以及成交量，能够直观反映市场情绪和价格趋势。经验丰富的交易员常常通过观察 K 线形态（如``头肩顶''``双底''``锤子线''等）来辅助决策。这一观察启发了一个有趣的研究问题：\textbf{卷积神经网络能否像识别自然图像中的物体一样，从 K 线图中``学习''出能够预测未来价格趋势的视觉模式？}
+
+深度残差网络 ResNet\cite{he2016deep} 通过引入跳跃连接解决了深度网络训练中的梯度消失问题，在 ImageNet 等大规模图像分类任务上取得了里程碑式的成绩，已成为计算机视觉领域最广泛使用的骨干网络之一。本文以 ResNet-18 为基础模型，探索其在 K 线图趋势分类这一非自然图像任务上的表现。我们将预测问题建模为二分类任务：给定过去 60 个交易日的 K 线图，判断未来 10 个交易日价格的涨跌方向。
+
+本文旨在回答以下研究问题：（1）预训练的 ResNet 是否能够从 K 线图的视觉形态中提取出具有预测能力的特征？（2）在金融时序数据的约束下，如何设计合理的实验流程以避免数据泄露？（3）如果模型表现不佳，其深层原因是什么？
+
+本文的主要贡献包括：（1）提出了一套完整的``金融数据获取 $\rightarrow$ K 线图渲染 $\rightarrow$ CNN 分类''的实验流程，代码开源可复现；（2）系统性地尝试了多种训练策略（层冻结、学习率调节、数据增强、标签平滑、早停等），积累了有价值的调优经验；（3）对负面实验结果进行了诚实而深入的分析，为后续研究提供了务实参考。
+
+% ==================== 2. 相关工作 ====================
+\section{相关工作}
+
+\subsection{ResNet 在图像分类中的应用}
+
+He 等人\cite{he2016deep}提出的 ResNet（Residual Network）通过跳跃连接机制，使得训练超过 100 层的深度网络成为可能，在 2015 年 ImageNet 竞赛中取得了 3.57\% 的 top-5 错误率，超越了人类识别水平。ResNet 系列模型（ResNet-18/34/50/101/152）已成为图像分类、目标检测、语义分割等任务的通用骨干网络。在迁移学习场景下，ImageNet 预训练的 ResNet 能够将在大规模自然图像上学到的底层特征（边缘、纹理、形状）迁移到目标领域，即便目标领域的图像分布与自然图像存在较大差异\cite{yosinski2014transferable}。
+
+\subsection{金融图表分析与深度学习}
+
+基于图表的金融分析有着悠久的历史。Murphy\cite{murphy1999technical} 在其经典著作中系统总结了技术分析方法，包括趋势线、支撑阻力位和各种 K 线组合形态，为后续量化分析奠定了基础。
+
+近年来，部分研究者开始尝试用 CNN 处理金融图表。Sim 等人\cite{sim2019deep} 将标普 500 成分股的 K 线图输入 VGG-19 进行涨跌分类，取得了约 55\%--60\% 的准确率，并指出图表预测的挑战性。Jiang 等人\cite{jiang2023re} 提出将技术指标叠加到 K 线图上作为 CNN 的多通道输入，在美股市场上取得了一定的预测能力提升。Cohen 等人\cite{cohen2022candlestick} 利用生成对抗网络（GAN）合成 K 线图样本以增强训练数据，缓解了金融数据量不足的问题。
+
+\subsection{与本文的关系}
+
+本文的工作建立在上述两个领域的交叉点上：一方面继承 ResNet 的迁移学习范式，将其应用于非自然图像领域；另一方面延续金融图表分析的思路，但在实验设计上更为严格。具体而言：（1）采用严格的时间序列划分（2020--2022 训练 / 2023 验证 / 2024--2025 测试），杜绝了随机划分可能导致的前视偏差；（2）过滤掉收益率在 $\pm 3\%$ 之间的震荡样本，聚焦于具有明确方向性的趋势样本；（3）系统性地记录了四轮调优历程，为领域提供了负结果（null result）参考。
+
+% ==================== 3. 方法 ====================
+\section{方法}
+
+\subsection{问题定义}
+
+给定某只股票过去 $T$ 个交易日的 OHLCV 数据（开盘价 $O_t$、最高价 $H_t$、最低价 $L_t$、收盘价 $C_t$、成交量 $V_t$，其中 $t=1,2,\dots,T$），将其渲染为一张 K 线图表 $X \in \mathbb{R}^{H \times W \times 3}$。模型的目标是预测该股票在未来 $N$ 个交易日的涨跌方向，即二分类标签 $y \in \{0, 1\}$，其中 $y=1$ 表示``上涨''，$y=0$ 表示``下跌''。
+
+未来 $N$ 日的累计收益率定义为：
+\begin{equation}
+R = \frac{C_{T+N} - C_T}{C_T}
+\end{equation}
+其中 $C_T$ 为窗口最后一天的收盘价，$C_{T+N}$ 为 $N$ 个交易日后的收盘价。
+
+为过滤噪声并增强信号，本文引入双阈值过滤策略：
+\begin{equation}
+y = \begin{cases}
+1, & R \geq \theta_u \quad \text{(上涨)}\\[2pt]
+0, & R \leq \theta_d \quad \text{(下跌)}\\[2pt]
+\text{discard}, & \theta_d < R < \theta_u \quad \text{(震荡, 丢弃)}
+\end{cases}
+\end{equation}
+其中 $\theta_u = +3\%$，$\theta_d = -3\%$。仅保留收益率绝对值超过 3\% 的样本，以聚焦于具有明确方向性的趋势窗口。
+
+本文设定 $T=60$（约一个季度的交易日）、$H=W=224$（匹配 ResNet 标准输入）、$N=10$（约两周的交易日）。
+
+\subsection{数据获取与渲染}
+
+本文使用 AKShare 库\footnote{AKShare: \url{https://github.com/akfamily/akshare}}从腾讯数据源获取沪深 300 成分股 2020 年 1 月 1 日至 2025 年 12 月 31 日的前复权日线交易数据，共计 300 只股票。前复权处理确保历史价格的可比性。
+
+K 线图使用 mplfinance 库渲染，每张图包含两个区域：
+\begin{itemize}[noitemsep]
+    \item \textbf{主图区域}（占比 75\%）：60 根日 K 线，实体颜色采用中式配色（红涨绿跌），影线与实体边缘同色。
+    \item \textbf{副图区域}（占比 25\%）：成交量柱状图，颜色与当日涨跌方向一致。
+\end{itemize}
+
+渲染时移除所有坐标轴、刻度标签、网格线和标题，仅保留原始图形信息，使模型专注于形态特征。为减少窗口重叠导致的数据冗余，采用滑动步长 $\text{stride}=45$（即窗口间 75\% 不重叠）。
+
+\subsection{数据集划分}
+
+考虑到金融数据的时序特性，本文采用严格的时间序列划分以避免前视偏差：
+\begin{itemize}[noitemsep]
+    \item \textbf{训练集}：2020 年 1 月 -- 2022 年 12 月（标签日期在 2022 年底前）
+    \item \textbf{验证集}：2023 年 1 月 -- 2023 年 12 月
+    \item \textbf{测试集}：2024 年 1 月 -- 2025 年 12 月
+\end{itemize}
+
+经过双阈值过滤后，最终数据集包含 5,612 张 K 线图（训练集 2,912 张、验证集 1,014 张、测试集 1,686 张），涨跌比约为 1.0:1.16，分布较为均衡。
+
+\subsection{模型结构}
+
+本文采用 ResNet-18 作为骨干网络。ResNet-18 由 1 个 $7 \times 7$ 卷积层、8 个残差块（共 16 个卷积层）和 1 个全局平均池化层组成，总参数量约 1,118 万。加载 ImageNet-1K 预训练权重后，将原始的分类层替换为：
+\begin{equation}
+\text{FC}_{\text{new}} = \text{Dropout}(p=0.3) \circ \text{Linear}(512, 2)
+\end{equation}
+其中 Dropout 用于正则化，输入维度 512 为 ResNet-18 全连接层前的特征维度。
+
+由于 K 线图和 ImageNet 自然图像在底层特征上存在本质差异（例如没有自然纹理，而是几何线段和块状色域），本文不对任何层进行冻结，采用全量微调策略，所有 1,118 万参数均参与梯度更新。
+
+\subsection{训练策略}
+
+模型训练采用以下配置：
+\begin{itemize}[noitemsep]
+    \item \textbf{损失函数}：交叉熵损失 + 标签平滑（$\epsilon = 0.1$），以防止模型对训练标签过拟合
+    \item \textbf{优化器}：AdamW，初始学习率 $\eta = 1 \times 10^{-5}$，权重衰减 $\lambda = 5 \times 10^{-4}$
+    \item \textbf{学习率调度}：余弦退火（Cosine Annealing），$T_{\text{max}} = 20$
+    \item \textbf{早停}：验证损失连续 5 轮未改善则提前终止
+    \item \textbf{批量大小}：128
+    \item \textbf{数据增强}：仅使用轻度的颜色抖动（亮度 $\pm 5\%$，对比度 $\pm 5\%$），不使用水平翻转（K 线图时间轴不可逆）和随机旋转（破坏 K 线几何形态）
+\end{itemize}
+
+\subsection{实验环境}
+
+实验在魔搭社区（ModelScope）的云端 GPU 环境中完成。硬件配置为 NVIDIA A10 GPU（24GB 显存）、8 核 CPU、32GB 内存；软件环境为 Ubuntu 22.04、CUDA 12.8、PyTorch 2.10.0、Python 3.12。
+
+% ==================== 4. 实验 ====================
+\section{实验}
+
+\subsection{评价指标}
+
+本文采用以下指标全面评估模型性能：
+\begin{itemize}[noitemsep]
+    \item \textbf{准确率（Accuracy）}：正确分类的样本比例。
+    \item \textbf{精确率（Precision）}：预测为``涨''的样本中真正上涨的比例。
+    \item \textbf{召回率（Recall）}：真正上涨的样本中被正确识别的比例。
+    \item \textbf{F1 分数}：精确率与召回率的调和平均。
+    \item \textbf{AUC-ROC}：ROC 曲线下面积，反映模型的整体排序能力，不受分类阈值影响。本文以 AUC-ROC 作为主要参考指标。
+\end{itemize}
+
+\subsection{实验结果}
+
+最终模型在测试集上的结果如表 \ref{tab:test_results} 所示，混淆矩阵如表 \ref{tab:confusion} 所示。
+
+\begin{table}[H]
+\centering
+\caption{测试集评价指标}
+\label{tab:test_results}
+\begin{tabular}{lc}
+\toprule
+\textbf{指标} & \textbf{数值} \\
+\midrule
+Accuracy  & 0.5036 \\
+Precision & 0.4551 \\
+Recall    & 0.4628 \\
+F1 Score  & 0.4590 \\
+AUC-ROC   & 0.5105 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{混淆矩阵}
+\label{tab:confusion}
+\begin{tabular}{lcc}
+\toprule
+\textbf{真实 $\backslash$ 预测} & \textbf{预测跌} & \textbf{预测涨} \\
+\midrule
+真实跌 & 494 & 425 \\
+真实涨 & 412 & 355 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+从整体结果来看，模型的 AUC-ROC 为 0.5105，仅略高于随机猜测的 0.5；F1 分数为 0.4590，准确率为 0.5036。这意味着模型未能从 K 线图中学习到具有预测能力的一致模式。
+
+\subsection{调优历程}
+
+本文在实验过程中进行了四轮系统性的训练策略调整，各轮次的测试集结果如表 \ref{tab:tuning} 所示。
+
+\begin{table}[H]
+\centering
+\caption{四轮调优策略与测试集结果汇总}
+\label{tab:tuning}
+\begin{tabular}{cclcc}
+\toprule
+\textbf{轮次} & \textbf{核心策略} & \textbf{关键改动} & \textbf{AUC} & \textbf{F1} \\
+\midrule
+1 & 冻结浅层 + 密集窗口 & 冻结 conv1--layer2, stride=15 & 0.5277 & 0.6067\textsuperscript{*} \\
+2 & 全量微调 + 降 LR & 解冻所有层, LR=5e-5, 删除翻转旋转 & 0.5261 & 0.5501 \\
+3 & 稀疏窗口 + 标签平滑 & stride=45, label smoothing=0.1 & 0.5261 & 0.5501 \\
+4 & 极端趋势标签 & $\ge 3\%$ / $\le -3\%$, 丢弃震荡 & 0.5105 & 0.4590 \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize \textsuperscript{*} 第 1 轮 F1 虚高系模型偏向预测``涨''类所致（Recall=0.74, Precision=0.51）。} \\
+\end{tabular}
+\end{table}
+
+\subsection{训练过程分析}
+
+表 \ref{tab:training_log} 展示了第 2 轮实验（全量微调）各 epoch 的训练与验证指标。从中可以清晰观察到典型的过拟合模式：训练损失从 0.74 快速下降至 0.02（Epoch 6），训练 F1 同步上升至 0.99；但验证损失反向攀升至 1.54，验证 F1 始终在 0.33--0.48 区间震荡。该模式在所有四轮实验中一致出现，表明模型可以轻易拟合训练集，但完全无法泛化到未见过的数据。
+
+\begin{table}[H]
+\centering
+\caption{第 2 轮实验逐 Epoch 训练日志（节选）}
+\label{tab:training_log}
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Epoch} & \textbf{Train Loss} & \textbf{Val Loss} & \textbf{Train F1} & \textbf{Val F1} & \textbf{Val AUC} \\
+\midrule
+1 & 0.7494 & 0.7250 & 0.5523 & 0.4314 & -- \\
+2 & 0.6200 & 0.7493 & 0.6474 & 0.3266 & -- \\
+3 & 0.4626 & 0.9966 & 0.7799 & 0.4844 & -- \\
+4 & 0.2238 & 1.1028 & 0.9247 & 0.3979 & -- \\
+5 & 0.0686 & 1.3795 & 0.9905 & 0.4283 & -- \\
+6 & 0.0200 & 1.5414 & 0.9993 & 0.4242 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{结果分析}
+
+模型未能取得有效预测能力的原因，本文从以下四个角度进行分析：
+
+\textbf{（1）有效市场假说。} Fama\cite{fama1970} 提出的有效市场假说认为，在半强式有效市场中，所有公开信息（包括历史价格和成交量）已经充分反映在当前价格中，仅凭历史价格形态无法获得超额收益。本文实证中 Acc $\approx 0.50$、AUC $\approx 0.51$ 的结果与这一理论预测高度吻合。这并不意味着模型或方法有缺陷，而可能反映了股票市场价格行为的本质属性。
+
+\textbf{（2）视觉特征的局限性。} K 线图虽然对人眼来说具有丰富的形态信息（头肩顶、三角整理、旗形等），但对于 CNN 而言，它不过是一组低分辨率像素排列。60 根 K 线在 $224 \times 224$ 像素的图片中，每根 K 线仅占约 3--4 像素宽，实体与影线的区分在压缩分辨率后变得模糊。ResNet 在 ImageNet 上预训练学到的 Gabor 滤波器、纹理检测器等底层特征，可能并不适合捕捉 K 线图的几何线段和块状色域。
+
+\textbf{（3）数据非平稳性与域漂移。} 金融市场的行为模式随时间动态变化。中国 A 股市场在 2020--2022 年经历了 COVID-19 冲击后的 V 型反弹，而 2024--2025 年则面临不同的宏观经济和政策环境。训练集和测试集的市场体制可能存在结构性差异，导致在训练期学到的模式在测试期失效。
+
+\textbf{（4）样本量约束。} 经过极端趋势过滤后，训练集仅剩 2,912 张图片。对于拥有 1,118 万参数的 ResNet-18 而言，即使采用预训练权重，这个样本量可能在域差异较大时不足以支撑有效的迁移学习。
+
+% ==================== 5. 结论 ====================
+\section{结论与展望}
+
+\subsection{本文工作总结}
+
+本文基于 ResNet-18 构建了一个完整的 K 线图涨跌趋势分类实验系统，覆盖了数据获取、图表渲染、模型训练、结果评估的全流程。通过对沪深 300 成分股 2020--2025 年的大规模实验，系统性地评估了卷积神经网络在纯 K 线图视觉预测任务上的可行性。
+
+经过四轮训练策略调优，实验结果表明：在严格的时间序列划分下，ResNet-18 未能从 K 线图形态中学习到具有统计显著性的预测信号，测试集 AUC-ROC 始终维持在 0.50--0.53 区间。
+
+\subsection{研究启示}
+
+这一负面结论本身具有重要的研究价值：
+
+第一，它提醒研究者：将计算机视觉模型应用于金融预测需要充分认识任务的本质难度。高效市场中的短期价格波动信噪比极低，仅凭视觉特征可能不足以捕捉有意义的规律。
+
+第二，实验设计的严谨性比追求好看的数值结果更为关键。本文采用的时序划分、双阈值过滤、多策略对比等方法，其方法论价值超过具体数值结果。
+
+第三，负结果的诚实报告对研究社区具有参考意义。当前学术文献普遍存在``正结果发表偏见''，而负结果有助于后来者避免重复同样的弯路。
+
+\subsection{未来工作方向}
+
+基于本文的经验和教训，未来可以从以下方向展开探索：
+
+\textbf{（1）丰富视觉输入。} 在 K 线图上叠加 MA5/MA10/MA20 均线、布林带等常用技术指标，形成多通道或多层图像输入，为 CNN 提供更丰富的视觉线索。交易员在实践中确实参考这些指标，叠加后或许能提供模型所需的额外判别信息。
+
+\textbf{（2）多模态融合。} 将 K 线图的视觉特征与股票的基本面数据（市盈率、市值、行业分类）或宏观经济指标进行多模态融合，利用非价格信息弥补视觉特征的不足。
+
+\textbf{（3）时序-视觉联合建模。} 将 ResNet 提取的视觉特征嵌入与 LSTM/Transformer 建模的时序特征拼接，形成视觉-时序联合表征，兼顾形态信息和时序依赖关系。
+
+\textbf{（4）换一个任务。} 将目标从``预测未来''改为``识别已发生的形态''——例如分类是否存在经典反转或突破形态。后者的信号更确定，更适合验证 CNN 学习 K 线图视觉特征的能力。
+
+\textbf{（5）增大数据规模。} 扩展至全市场 5000+ 只股票，或引入美股等海外市场数据，缓解样本量不足的问题。同时可以考虑使用更小的自定义 CNN 架构以匹配数据规模。
+
+% ==================== 参考文献 ====================
+\begin{thebibliography}{99}
+
+\bibitem{fama1970}
+Fama, E.~F. (1970).
+Efficient capital markets: A review of theory and empirical work.
+\textit{The Journal of Finance}, 25(2), 383--417.
+
+\bibitem{he2016deep}
+He, K., Zhang, X., Ren, S., \& Sun, J. (2016).
+Deep residual learning for image recognition.
+\textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 770--778.
+
+\bibitem{murphy1999technical}
+Murphy, J.~J. (1999).
+\textit{Technical Analysis of the Financial Markets}.
+New York Institute of Finance.
+
+\bibitem{sim2019deep}
+Sim, H.~S., Kim, H.~I., \& Ahn, J.~J. (2019).
+Is deep learning for image recognition applicable to stock market prediction?
+\textit{Complexity}, 2019, 4324878.
+
+\bibitem{jiang2023re}
+Jiang, J., Kelly, B., \& Xiu, D. (2023).
+(Re-)Imag(in)ing price trends.
+\textit{The Journal of Finance}, 78(6), 3893--3959.
+
+\bibitem{cohen2022candlestick}
+Cohen, N., Balch, T., \& Veloso, M. (2022).
+Trading via image classification.
+\textit{Proceedings of the 3rd ACM International Conference on AI in Finance (ICAIF)}, 53--61.
+
+\bibitem{yosinski2014transferable}
+Yosinski, J., Clune, J., Bengio, Y., \& Lipson, H. (2014).
+How transferable are features in deep neural networks?
+\textit{Advances in Neural Information Processing Systems (NeurIPS)}, 27.
+
+\bibitem{akshare}
+AKShare Development Team.
+AKShare: Python financial data interface library.
+\url{https://github.com/akfamily/akshare}
+
+\end{thebibliography}
+
+% ==================== AIGC 使用说明 ====================
+\section*{AIGC 使用情况说明}
+
+本文在撰写过程中使用了大语言模型（Claude, Anthropic）辅助完成以下工作：
+\begin{enumerate}[noitemsep]
+    \item 实验代码（Python/PyTorch）的生成、调试与优化；
+    \item 部分段落初稿的起草和语言润色；
+    \item 参考文献 BibTeX 格式的规范化。
+\end{enumerate}
+
+所有 AIGC 生成的内容均经过作者人工审核和修改，作者对论文的全部内容和学术质量负责。论文中报告的所有实验数据均为真实运行结果，未经过 AIGC 虚构或篡改。本文的实验代码和数据集可通过 GitHub 仓库获取\footnote{\url{https://github.com/Heartunderbladde/CV\_Restnet}}。
+
+\end{CJK}
+\end{document}
